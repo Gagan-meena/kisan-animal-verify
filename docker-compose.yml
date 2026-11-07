@@ -1,0 +1,151 @@
+# Local pilot stack. Mirrors production components at small scale.
+# Usage: cp .env.example .env && docker compose up -d && make migrate
+name: kisan
+
+x-app: &app
+  build: .
+  env_file: .env
+  depends_on:
+    postgres: { condition: service_healthy }
+    kafka: { condition: service_healthy }
+  restart: unless-stopped
+
+x-kisan-env: &kisan-env
+  KISAN_DATABASE_URL: postgresql+asyncpg://kisan:kisan@postgres:5432/kisan
+  KISAN_KAFKA_BOOTSTRAP: kafka:9092
+  KISAN_TEMPORAL_HOST: temporal:7233
+  KISAN_QDRANT_URL: http://qdrant:6333
+  KISAN_S3_ENDPOINT: http://minio:9000
+  KISAN_S3_ACCESS_KEY: kisan
+  KISAN_S3_SECRET_KEY: kisan-secret
+
+services:
+  # Rule 4: Postgres with Citus (single coordinator locally; workers added in prod)
+  postgres:
+    image: citusdata/citus:12.1
+    environment:
+      POSTGRES_USER: kisan
+      POSTGRES_PASSWORD: kisan
+      POSTGRES_DB: kisan
+    ports: ["5432:5432"]
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kisan"]
+      interval: 5s
+      retries: 20
+
+  # Rule 2: Kafka in KRaft mode (no ZooKeeper)
+  kafka:
+    image: apache/kafka:3.7.0
+    ports: ["9092:9092"]
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 12
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list",
+        ]
+      interval: 10s
+      retries: 20
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on: { kafka: { condition: service_healthy } }
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for t in media.uploaded verify.requested verify.decided review.closed media.uploaded.dlq verify.requested.dlq; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic $$t --partitions 12 --replication-factor 1
+        done
+
+  # Rule 2: Temporal (dev auto-setup; production uses Temporal Cloud or a HA cluster)
+  temporal:
+    image: temporalio/auto-setup:1.24
+    depends_on: { postgres: { condition: service_healthy } }
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: kisan
+      POSTGRES_PWD: kisan
+      POSTGRES_SEEDS: postgres
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    depends_on: [temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports: ["8233:8080"]
+
+  # Rule 4: Qdrant (single node locally; 3-node cluster in prod)
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    ports: ["6333:6333", "6334:6334"]
+    volumes: [qdrant:/qdrant/storage]
+
+  # S3-compatible storage for local dev
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: kisan
+      MINIO_ROOT_PASSWORD: kisan-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio:/data]
+
+  minio-init:
+    image: public.ecr.aws/aws-cli/aws-cli
+    depends_on: [minio]
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin # your MinIO user
+      AWS_SECRET_ACCESS_KEY: minioadmin # your MinIO password
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: sh -c "sleep 5; aws --endpoint-url http://minio:9000 s3 mb s3://kisan || true"
+
+  # Rule 3: Triton (only with --profile gpu; needs NVIDIA runtime)
+  triton:
+    profiles: ["gpu"]
+    image: nvcr.io/nvidia/tritonserver:24.05-py3
+    command: tritonserver --model-repository=/models --strict-model-config=false
+    volumes: ["./infra/triton_repo:/models"]
+    ports: ["8000:8000", "8001:8001", "8002:8002"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  # ---- Kisan services ----
+  api:
+    <<: *app
+    command: uvicorn kisan.services.api:app --host 0.0.0.0 --port 8080
+    ports: ["8080:8080"]
+    environment: *kisan-env
+
+  outbox-relay:
+    <<: *app
+    command: python -m kisan.events.relay
+    environment: *kisan-env
+
+  verify-trigger:
+    <<: *app
+    command: python -m kisan.services.verification.trigger
+    environment: *kisan-env
+
+  verify-worker:
+    <<: *app
+    command: python -m kisan.services.verification.worker
+    environment: *kisan-env
+
+volumes:
+  pg:
+  qdrant:
+  minio:

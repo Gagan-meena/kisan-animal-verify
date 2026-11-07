@@ -1,0 +1,8 @@
+# YOLO11s-cls, classes in kisan/ml/backends.py VIEW_LABELS order
+name: "view_cls"
+platform: "tensorrt_plan"
+max_batch_size: 64
+input [ { name: "images" data_type: TYPE_FP32 dims: [ 3, 224, 224 ] } ]
+output [ { name: "output0" data_type: TYPE_FP32 dims: [ 7 ] } ]
+dynamic_batching { max_queue_delay_microseconds: 3000 }
+instance_group [ { kind: KIND_GPU count: 1 } ]

@@ -1,0 +1,13 @@
+# Re-ID embedder: MegaDescriptor-L-384 (Swin-L) fine-tuned on reviewer-labelled pairs.
+# Export: torch.onnx.export(..., input_names=["input"], output_names=["embedding"],
+#         dynamic_axes={"input": {0: "N"}, "embedding": {0: "N"}}) then trtexec --fp16.
+name: "reid"
+platform: "tensorrt_plan"
+max_batch_size: 64
+input [ { name: "input" data_type: TYPE_FP32 dims: [ 3, 384, 384 ] } ]
+output [ { name: "embedding" data_type: TYPE_FP32 dims: [ 1536 ] } ]
+dynamic_batching {
+  preferred_batch_size: [ 16, 32 ]
+  max_queue_delay_microseconds: 5000
+}
+instance_group [ { kind: KIND_GPU count: 2 } ]

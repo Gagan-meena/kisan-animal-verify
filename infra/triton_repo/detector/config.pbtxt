@@ -1,0 +1,13 @@
+# YOLO11m fine-tuned on 6 species, exported with:
+#   yolo export model=detector.pt format=engine half=True dynamic=True batch=32 imgsz=640
+# Place the engine at detector/1/model.plan (built on the same GPU type: L4).
+name: "detector"
+platform: "tensorrt_plan"
+max_batch_size: 32
+input [ { name: "images" data_type: TYPE_FP32 dims: [ 3, 640, 640 ] } ]
+output [ { name: "output0" data_type: TYPE_FP32 dims: [ 10, 8400 ] } ]  # 4 box + 6 classes
+dynamic_batching {
+  preferred_batch_size: [ 8, 16, 32 ]
+  max_queue_delay_microseconds: 5000
+}
+instance_group [ { kind: KIND_GPU count: 2 } ]

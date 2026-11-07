@@ -1,0 +1,54 @@
+# Rule 3: Triton scales on verification backlog, not CPU.
+# Requires KEDA and a GPU node pool (Karpenter NodePool with g6.xlarge / L4 in ap-south-1).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton
+  namespace: kisan
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: triton } }
+  template:
+    metadata: { labels: { app: triton } }
+    spec:
+      nodeSelector: { karpenter.k8s.aws/instance-gpu-name: l4 }
+      tolerations: [{ key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: { matchLabels: { app: triton } }
+      containers:
+        - name: triton
+          image: nvcr.io/nvidia/tritonserver:24.05-py3
+          args: ["tritonserver", "--model-repository=s3://kisan-models-ap-south-1/triton_repo",
+                 "--model-control-mode=poll", "--repository-poll-secs=60"]
+          ports: [{ containerPort: 8001, name: grpc }, { containerPort: 8002, name: metrics }]
+          resources: { limits: { nvidia.com/gpu: 1 } }
+          readinessProbe: { httpGet: { path: /v2/health/ready, port: 8000 }, periodSeconds: 5 }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: triton
+  namespace: kisan
+spec:
+  scaleTargetRef: { name: triton }
+  minReplicaCount: 2
+  maxReplicaCount: 12
+  cooldownPeriod: 300
+  triggers:
+    # Backlog of submissions waiting to be verified
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.kisan.svc:9092
+        consumerGroup: verify-trigger
+        topic: verify.requested
+        lagThreshold: "200"
+    # Time requests wait inside Triton before running on the GPU
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus.monitoring.svc:9090
+        query: |
+          sum(rate(nv_inference_queue_duration_us[1m])) / sum(rate(nv_inference_request_success[1m])) / 1000
+        threshold: "50"  # ms
