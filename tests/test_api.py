@@ -3,7 +3,7 @@ import uuid
 
 from sqlalchemy import select
 
-from kisan.db.models import Decision, Outbox, Verification,ListingStatus,Listing
+from kisan.db.models import Decision, Listing, ListingStatus, Outbox, Verification
 from kisan.rules.policy import required_views
 
 APP = {"X-App-Version": "1.2.0"}

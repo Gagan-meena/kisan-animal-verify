@@ -5,12 +5,21 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select,and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from kisan import events
 from kisan.config import Settings, get_settings
-from kisan.db.models import Animal, AnimalImage, Listing, ListingStatus, ListingSummary, Seller, Verification, View
+from kisan.db.models import (
+    Animal,
+    AnimalImage,
+    Listing,
+    ListingStatus,
+    ListingSummary,
+    Seller,
+    Verification,
+    View,
+)
 from kisan.db.session import get_session
 from kisan.rules.policy import (
     MAX_IMAGES_PER_ANIMAL,
@@ -168,7 +177,10 @@ async def submit_for_verification(
         raise HTTPException(status.HTTP_409_CONFLICT, f"Listing is already {listing.status.lower()}.")
 
     if listing.status ==  ListingStatus.BLOCKED:
-        raise HTTPException(status.HTTP_409_CONFLICT, "This listing is not allowed and cannot be submitted again."  )
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This listing is not allowed and cannot be submitted again."
+        )
 
     uploaded_views = set(
         (

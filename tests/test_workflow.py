@@ -8,7 +8,7 @@ from temporalio import activity
 from temporalio.client import WorkflowFailureError  # noqa: F401
 from temporalio.worker import Worker
 
-from kisan.services.verification.contracts import AnalyzeResult, ReviewSignal, VerifyRequest
+from kisan.services.verification.contracts import AnalyzeResult, RecordInput, ReviewSignal, VerifyRequest
 from kisan.services.verification.workflow import VerifyAnimal
 
 
@@ -42,7 +42,7 @@ def fake_activities(decision_status: str, recorded: list):
         return {"status": decision_status, "score": 90.0, "reasons": []}
 
     @activity.defn(name="record_decision")
-    async def record_decision(inp):
+    async def record_decision(inp:RecordInput):
         recorded.append((inp.phase, inp.decision["status"]))
 
     @activity.defn(name="index_identity")
