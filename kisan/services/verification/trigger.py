@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from typing import Any, cast
 
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer, ConsumerRecord
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -20,15 +22,20 @@ from kisan.services.verification.contracts import VerifyRequest, workflow_id_for
 
 log = logging.getLogger("kisan.trigger")
 
-
 def parse(value: bytes) -> VerifyRequest:
-    d = json.loads(value)
-    return VerifyRequest(
-        seller_id=d["seller_id"],
-        animal_id=d["animal_id"],
-        listing_id=d["listing_id"],
-        attempt=int(d.get("attempt", 1)),
-    )
+        raw = json.loads(value)
+
+        if not isinstance(raw,dict):
+            raise ValueError(f"Expected JSON object, got {type(raw).__name__}")
+
+        d = cast(dict[str, Any], raw)
+
+        return VerifyRequest(
+            seller_id= d["seller_id"],
+            animal_id= d["animal_id"],
+            listing_id= d["listing_id"],
+            attempt= int(d.get("attempt", 1)),
+        )
 
 
 async def start(client: Client, req: VerifyRequest) -> bool:
@@ -50,8 +57,6 @@ async def start(client: Client, req: VerifyRequest) -> bool:
 
 
 async def main() -> None:
-    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
-
     logging.basicConfig(level=logging.INFO)
     s = get_settings()
     client = await Client.connect(s.temporal_host)
@@ -66,15 +71,28 @@ async def main() -> None:
     await consumer.start()
     await dlq.start()
     try:
-        async for msg in consumer:
+        async for raw_msg in consumer: # type: ignore
+            msg = cast(
+                ConsumerRecord[bytes, bytes | None],
+                raw_msg,
+            )           
+            if msg.value is None:
+                log.warning("Skipping empty message payload at offset %s", msg.offset)
+                await consumer.commit()  # type: ignore
+                continue
+
             try:
                 req = parse(msg.value)
-            except (ValueError, KeyError) as e:
+            except Exception as e:
                 log.error("bad event at offset %s: %s", msg.offset, e)
-                await dlq.send_and_wait(events.dlq(events.VERIFY_REQUESTED), msg.value, key=msg.key)
+                await dlq.send_and_wait( # type: ignore
+                    events.dlq(events.VERIFY_REQUESTED),
+                    msg.value,
+                    key=msg.key
+                ) 
             else:
                 await start(client, req)  # Temporal errors propagate: crash and resume from last commit
-            await consumer.commit()
+            await consumer.commit() # type: ignore
     finally:
         await consumer.stop()
         await dlq.stop()

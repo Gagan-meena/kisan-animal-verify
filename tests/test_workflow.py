@@ -1,3 +1,4 @@
+# type: ignore
 """Full Temporal workflow test with time skipping. Needs the Temporal test server binary,
 which the SDK downloads on first run; skipped when it cannot be fetched (offline CI)."""
 
