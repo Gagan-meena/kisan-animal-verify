@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,7 @@ class CaptureMeta(BaseModel):
     captured_at: str
     app_version: str
     device_id: str
-    on_device_check: dict = Field(default_factory=dict)
+    on_device_check: dict[str,Any] = Field(default_factory=dict[str,Any])
     sig: str | None = None
 
 
@@ -62,6 +62,7 @@ class ReuploadOut(BaseModel):
     image_id: str
     view: str
     reason: str
+    code: str = "other"
 
 
 class SellerVerificationOut(BaseModel):
@@ -76,7 +77,10 @@ class ReviewIn(BaseModel):
     decision: Literal["VERIFIED", "REUPLOAD", "BLOCKED"]
     reason: str = ""
     # Labels feed Re-ID fine-tuning and threshold calibration
-    labels: dict = Field(default_factory=dict, examples=[{"same_animal": True, "species": "cow"}])
+    labels: dict[str,Any] = Field(
+        default_factory=dict[str,Any],
+        examples=[{"same_animal": True, "species": "cow"}]
+    )
 
 
 class ReviewQueueItem(BaseModel):

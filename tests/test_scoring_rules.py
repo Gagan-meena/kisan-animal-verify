@@ -3,11 +3,11 @@ import numpy as np
 from kisan.ml import scoring, yolo
 from kisan.ml.stages import fraud
 from kisan.ml.stages.fraud import DuplicateHit, PhotoFacts
-from kisan.ml.types import ReuploadItem, StageResult
+from kisan.ml.types import ReuploadCode, ReuploadItem, StageResult
 from kisan.rules.engine import StateRuleRow, evaluate
 
 
-def ok(name, score):
+def ok(name:str, score:float | None=None):
     return StageResult(name, True, score)
 
 
@@ -26,7 +26,13 @@ def test_decision_ladder():
     d = scoring.decide(flagged)
     assert d.status == "NEEDS_REVIEW" and d.reasons == ["seller KYC is not complete"]
 
-    retake = [*good, StageResult("quality", False, 0.8, reupload=[ReuploadItem("i", "LEFT", "blurry")])]
+    retake = [*good,
+         StageResult(
+            "quality",
+            False, 0.8,
+            reupload=[ReuploadItem("i", "LEFT", "blurry",ReuploadCode.BLURRY)]
+        )
+    ]
     d = scoring.decide(retake)
     assert d.status == "REUPLOAD" and d.reasons == ["LEFT: blurry"]
 

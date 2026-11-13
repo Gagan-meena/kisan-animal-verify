@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import cv2
 import imagehash
 import numpy as np
@@ -9,7 +11,7 @@ from PIL import Image
 
 from kisan.ml.stages.context import AnalyzeContext
 from kisan.ml.thresholds import Thresholds
-from kisan.ml.types import ReuploadItem, StageResult
+from kisan.ml.types import ReuploadCode, ReuploadItem, StageResult
 
 NAME = "quality"
 
@@ -29,20 +31,30 @@ def measure(bgr: np.ndarray) -> dict[str, float]:
     }
 
 
-def problems(m: dict[str, float], th: Thresholds) -> list[str]:
-    p = []
+def problems(m: dict[str, float], th: Thresholds) -> list[tuple[ReuploadCode, str]]:
+    p: list[tuple[ReuploadCode, str]] = []
+    # 1. Resolution / distance check first (most fundamental fix)
     if m["short_side"] < th.min_short_side:
-        p.append(f"photo too small ({int(m['short_side'])}px, need {th.min_short_side}px)")
+        p.append((
+            ReuploadCode.TOO_SMALL,
+            f"photo too small ({int(m['short_side'])}px, need {th.min_short_side}px)",
+        ))
+    # 2. Focus / motion blur next
     if m["blur_var"] < th.min_blur_var:
-        p.append("photo is blurry; hold the phone steady")
+        p.append((ReuploadCode.BLURRY, "photo is blurry; hold the phone steady"))
+    # 3. Lighting & exposure issues
     if m["brightness"] < th.min_brightness:
-        p.append("photo is too dark; move to daylight")
+        p.append((ReuploadCode.TOO_DARK, "photo is too dark; move to daylight"))
     elif m["brightness"] > th.max_brightness:
-        p.append("photo is too bright; avoid direct sun behind the animal")
+        p.append((
+            ReuploadCode.TOO_BRIGHT,
+            "photo is too bright; avoid direct sun behind the animal",
+        ))
+    # 4. Contrast & clipping last
     if m["contrast"] < th.min_contrast:
-        p.append("photo has very low contrast")
+        p.append((ReuploadCode.LOW_CONTRAST, "photo has very low contrast"))
     if m["clipped"] > th.max_clipped_fraction:
-        p.append("large parts of the photo are pure black or white")
+        p.append((ReuploadCode.CLIPPED, "large parts of the photo are pure black or white"))
     return p
 
 
@@ -51,7 +63,7 @@ def phash(bgr: np.ndarray) -> str:
 
 
 def run(ctx: AnalyzeContext) -> StageResult:
-    metrics: dict[str, dict] = {}
+    metrics: dict[str, dict[str, Any]] = {}
     reupload: list[ReuploadItem] = []
     for it in ctx.photos:
         m = measure(it.bgr)
@@ -59,7 +71,16 @@ def run(ctx: AnalyzeContext) -> StageResult:
         metrics[it.image_id] = {k: round(v, 2) for k, v in m.items()}
         p = problems(m, ctx.th)
         if p:
-            reupload.append(ReuploadItem(it.image_id, it.view, "; ".join(p)))
+            reason = "; ".join(text for _, text in p)
+            code = p[0][0]
+            reupload.append(
+                ReuploadItem(
+                    it.image_id,
+                    it.view,
+                    reason,
+                    code,
+                )
+            )
     total = max(1, len(ctx.photos))
     return StageResult(
         name=NAME,

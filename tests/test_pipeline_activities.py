@@ -1,3 +1,4 @@
+# type: ignore
 """End-to-end over the real activities (sqlite + in-memory storage + fake models),
 in the same order the VerifyAnimal workflow calls them."""
 
@@ -193,3 +194,4 @@ async def test_blurry_photo_asks_for_retake(db, make_acts):
     assert decision["status"] == "REUPLOAD"
     assert decision["reupload"][0]["view"] == "LEFT"
     assert "blurry" in decision["reupload"][0]["reason"]
+    assert decision["reupload"][0]["code"] == "blurry"

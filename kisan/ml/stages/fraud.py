@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 import imagehash
 
 from kisan.ml.thresholds import DEFAULT, Thresholds
-from kisan.ml.types import ReuploadItem, StageResult
+from kisan.ml.types import ReuploadCode, ReuploadItem, StageResult
 
 NAME = "fraud"
 
@@ -18,7 +19,7 @@ class PhotoFacts:
     image_id: str
     view: str
     phash: str | None
-    capture_meta: dict = field(default_factory=dict)
+    capture_meta: dict[str,Any] = field(default_factory=dict[str,Any])
 
 
 @dataclass
@@ -41,17 +42,22 @@ def run(
     reupload: list[ReuploadItem] = []
 
     # 1. Same photo uploaded as two different views
-    hashed = [p for p in photos if p.phash]
+    hashed:list[PhotoFacts] = [p for p in photos if p.phash]
     seen: set[str] = set()
     for i, a in enumerate(hashed):
+        if a.phash is None:
+            continue
         for b in hashed[i + 1 :]:
-            if b.image_id in seen:
+            if b.image_id in seen or b.phash is None:
                 continue
             if imagehash.hex_to_hash(a.phash) - imagehash.hex_to_hash(b.phash) <= th.phash_same_photo:
                 seen.add(b.image_id)
                 reupload.append(
                     ReuploadItem(
-                        b.image_id, b.view, f"same photo as the {a.view} photo; take a new {b.view} photo"
+                        b.image_id,
+                        b.view,
+                        f"same photo as the {a.view} photo; take a new {b.view} photo",
+                        ReuploadCode.SAME_PHOTO
                     )
                 )
 
@@ -59,11 +65,17 @@ def run(
     for p in photos:
         src = p.capture_meta.get("source")
         if src != "in_app_camera":
-            reupload.append(ReuploadItem(p.image_id, p.view, "take this photo with the in-app camera"))
+            reupload.append(
+                ReuploadItem(p.image_id,
+                    p.view,
+                    "take this photo with the in-app camera",
+                    ReuploadCode.USE_CAMERA
+                )
+            )
         elif not p.capture_meta.get("sig"):
             flags.append(f"{p.view} photo has no capture signature")
 
-    times = []
+    times:list[datetime] = []
     for p in photos:
         ts = p.capture_meta.get("captured_at")
         if ts:

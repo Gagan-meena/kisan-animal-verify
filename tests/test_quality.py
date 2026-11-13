@@ -1,3 +1,4 @@
+# type: ignore
 import cv2
 import numpy as np
 
@@ -17,12 +18,12 @@ def test_blurry_photo_rejected():
 
 def test_dark_photo_rejected():
     dark = (sharp_image() * 0.1).astype(np.uint8)
-    assert any("dark" in p for p in quality.problems(quality.measure(dark), DEFAULT))
+    assert any("too_dark" in p for p in quality.problems(quality.measure(dark), DEFAULT))
 
 
 def test_small_photo_rejected():
     small = cv2.resize(sharp_image(), (640, 480))
-    assert any("too small" in p for p in quality.problems(quality.measure(small), DEFAULT))
+    assert any("too_small" in p for p in quality.problems(quality.measure(small), DEFAULT))
 
 
 def test_phash_same_for_recompressed_copy():

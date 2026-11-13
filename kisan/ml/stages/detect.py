@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from kisan.ml import yolo
 from kisan.ml.stages.context import AnalyzeContext
-from kisan.ml.types import Detection, MediaItem, ReuploadItem, StageResult
+from kisan.ml.types import Detection, MediaItem, ReuploadCode, ReuploadItem, StageResult
 from kisan.rules.policy import FULL_BODY_VIEWS
 
 NAME = "detect"
@@ -25,7 +27,7 @@ def _assign(item: MediaItem, animals: list[Detection]) -> None:
 
 def run(ctx: AnalyzeContext) -> StageResult:
     reupload: list[ReuploadItem] = []
-    evidence: dict[str, dict] = {}
+    evidence: dict[str, dict[str,Any]] = {}
 
     if ctx.photos:
         for it, dets in zip(ctx.photos, ctx.backend.detect(ctx.photos), strict=True):
@@ -41,18 +43,33 @@ def run(ctx: AnalyzeContext) -> StageResult:
             }
             if it.view in FULL_BODY_VIEWS:
                 if not animals:
-                    reupload.append(ReuploadItem(it.image_id, it.view, "no animal found in this photo"))
+                    reupload.append(
+                        ReuploadItem(it.image_id,
+                            it.view,
+                            "no animal found in this photo",
+                            ReuploadCode.NO_ANIMAL
+                        )
+                    )
                 elif coverage < ctx.th.min_body_coverage:
-                    reupload.append(ReuploadItem(it.image_id, it.view, "animal is too far; move closer"))
+                    reupload.append(
+                        ReuploadItem(it.image_id,
+                            it.view,
+                            "animal is too far; move closer",
+                            ReuploadCode.TOO_FAR
+                        )
+                    )
                 elif big_others:
                     reupload.append(
                         ReuploadItem(
-                            it.image_id, it.view, "more than one animal in the photo; photograph one"
+                            it.image_id,
+                            it.view,
+                            "more than one animal in the photo; photograph one",
+                            ReuploadCode.MANY_ANIMALS
                         )
                     )
             _assign(it, animals)
 
-    usable_frames = []
+    usable_frames:list[MediaItem] = []
     if ctx.video_frames:
         for fr, dets in zip(ctx.video_frames, ctx.backend.detect(ctx.video_frames), strict=True):
             animals = _animals(dets, ctx)

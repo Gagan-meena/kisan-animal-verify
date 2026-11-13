@@ -4,6 +4,7 @@ import uuid
 from sqlalchemy import select
 
 from kisan.db.models import Decision, Listing, ListingStatus, Outbox, Verification
+from kisan.ml.types import ReuploadCode
 from kisan.rules.policy import required_views
 
 APP = {"X-App-Version": "1.2.0"}
@@ -216,6 +217,29 @@ async def test_submit_blocked_listing_409(client,db):
 
     async with db() as s:
         assert (await s.get(Listing, key)).status == ListingStatus.BLOCKED
+
+async def test_legacy_reupload_row_defaults_code_to_other(client,db):
+    h =  await new_seller(client)
+    listing = await new_listing(client,h)
+    seller_id = uuid.UUID(h["X-Seller-Id"])
+    animal_id = uuid.UUID(listing["animal_id"])
+
+    async with db() as s:
+        s.add(
+            Verification(
+                seller_id=seller_id,
+                animal_id=animal_id,
+                workflow_id="verify-legacy-1",
+                status=Decision.REUPLOAD,
+                evidence={"decision": {"reupload": [{"image_id": "x", "view": "LEFT", "reason": "old text"}]}}
+            )
+        )
+        await s.commit()
+
+    r = await client.get(f"/v1/animals/{animal_id}/verification", headers=h)
+
+    assert r.status_code == 200
+    assert r.json()["reupload"][0]["code"] == ReuploadCode.OTHER
 
 
 

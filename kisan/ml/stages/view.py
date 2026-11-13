@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from kisan.ml.stages.context import AnalyzeContext
-from kisan.ml.types import ReuploadItem, StageResult
+from kisan.ml.types import ReuploadCode, ReuploadItem, StageResult
 from kisan.rules.policy import required_views
 
 NAME = "views"
@@ -12,12 +14,12 @@ _SWAP = {"LEFT": "RIGHT", "RIGHT": "LEFT"}
 
 def run(ctx: AnalyzeContext) -> StageResult:
     reupload: list[ReuploadItem] = []
-    evidence: dict[str, dict] = {}
+    evidence: dict[str, dict[str,Any]] = {}
     photos = [it for it in ctx.photos if it.crop is not None]
 
     for it, probs in zip(photos, ctx.backend.classify_view(photos) if photos else [], strict=True):
-        pred = max(probs, key=probs.get)
-        conf = probs[pred]
+        pred:str = max(probs,  key=lambda k: probs[k])
+        conf:float = probs[pred]
         evidence[it.image_id] = {"declared": it.view, "pred": pred, "conf": round(conf, 3)}
         if pred == it.view or conf < ctx.th.view_conf:
             continue
@@ -27,7 +29,12 @@ def run(ctx: AnalyzeContext) -> StageResult:
             evidence[it.image_id]["corrected"] = True
         else:
             reupload.append(
-                ReuploadItem(it.image_id, it.view, f"this looks like a {pred} photo, not {it.view}")
+                ReuploadItem(
+                    it.image_id,
+                    it.view,
+                    f"this looks like a {pred} photo, not {it.view}",
+                    ReuploadCode.WRONG_VIEW
+                )
             )
 
     rejected = {r.image_id for r in reupload}
@@ -38,7 +45,7 @@ def run(ctx: AnalyzeContext) -> StageResult:
     missing = sorted(needed - covered)
     for v in missing:
         if not any(r.view == v for r in reupload):
-            reupload.append(ReuploadItem("", v, f"{v} photo is missing"))
+            reupload.append(ReuploadItem("", v, f"{v} photo is missing",ReuploadCode.MISSING))
 
     return StageResult(
         name=NAME,

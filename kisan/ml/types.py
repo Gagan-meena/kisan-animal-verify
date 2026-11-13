@@ -1,10 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
 
+
+class ReuploadCode(StrEnum):
+    NO_ANIMAL = "no_animal"
+    TOO_FAR = "too_far"
+    MANY_ANIMALS = "many_animals"
+    WRONG_VIEW = "wrong_view"
+    MISSING = "missing"
+    SAME_PHOTO = "same_photo"
+    USE_CAMERA = "use_camera"
+    BLURRY = "blurry"
+    TOO_DARK= "too_dark"
+    GLARE = "glare"
+    TOO_BRIGHT="too_bright"
+    TOO_SMALL= "too_small"
+    LOW_CONTRAST="low_contrast"
+    CLIPPED="clipped"
+    OTHER = "other"
 
 @dataclass
 class Detection:
@@ -38,6 +56,7 @@ class ReuploadItem:
     image_id: str
     view: str
     reason: str
+    code: str
 
 
 @dataclass
@@ -47,11 +66,11 @@ class StageResult:
     # 0..1, or None when the stage was skipped (excluded from the weighted score)
     score: float | None
     hard_gate: bool = False
-    flags: list[str] = field(default_factory=list)
-    reupload: list[ReuploadItem] = field(default_factory=list)
-    evidence: dict[str, Any] = field(default_factory=dict)
+    flags: list[str] = field(default_factory=list[str])
+    reupload: list[ReuploadItem] = field(default_factory=list[ReuploadItem])
+    evidence: dict[str, Any] = field(default_factory=dict[str,Any])
     blocked: bool = False
-    block_reasons: list[str] = field(default_factory=list)
+    block_reasons: list[str] = field(default_factory=list[str])
 
     @property
     def stops_pipeline(self) -> bool:
