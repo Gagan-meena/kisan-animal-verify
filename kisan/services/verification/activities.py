@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -144,13 +145,19 @@ class VerifyActivities:
         )
 
     @activity.defn
-    async def fraud_and_rules(self, inp: FraudInput) -> list[dict]:
+    async def fraud_and_rules(self, inp: FraudInput) -> list[dict[str,Any]]:
         req = inp.req
         sid, aid = uuid.UUID(req.seller_id), uuid.UUID(req.animal_id)
         async with self.d.sessionmaker() as s:
             seller = await s.get(Seller, sid)
+            if seller is None:
+                raise ValueError(f"Seller not found: {sid}")
             animal = await s.get(Animal, (sid, aid))
+            if animal is None:
+                raise ValueError(f"Animal not found: {aid}")
             listing = await s.get(Listing, (sid, animal.listing_id))
+            if listing is None:
+                raise ValueError(f"Listing not found: {animal.listing_id}")
             files = await latest_media(s, sid, aid)
             rule = await s.get(StateRule, (listing.state, animal.species, "sell"))
 
@@ -165,7 +172,7 @@ class VerifyActivities:
         ]
         fr = fraud.run(facts, seller_id=req.seller_id, seller_kyc=seller.kyc_status, duplicate_hits=hits)
 
-        docs = set()
+        docs:set[str] = set()
         if animal.tag_id and View.TAG in files:
             docs.add("ear_tag")
         rule_row = (
@@ -185,9 +192,12 @@ class VerifyActivities:
         return [fr.to_dict(), rr.to_dict()]
 
     @activity.defn
-    async def score(self, inp: ScoreInput) -> dict:
+    async def score(self, inp: ScoreInput) -> dict[str,Any]:
         results = [StageResult.from_dict(r) for r in inp.results]
-        return scoring.decide(results, human_confirms_all=self.d.settings.pilot_human_confirms_all).to_dict()
+        return scoring.decide(
+            results,
+            human_confirms_all=self.d.settings.pilot_human_confirms_all
+        ).to_dict()
 
     @activity.defn
     async def record_decision(self, inp: RecordInput) -> None:
@@ -215,6 +225,8 @@ class VerifyActivities:
                 v.flags = inp.decision.get("flags", [])
                 v.model_versions = self.d.backend.versions()
             else:
+                if inp.reviewer is None:
+                    raise ValueError(f"Reviewer missing for phase={inp.phase}")
                 evidence["review"] = {
                     "reviewer_id": inp.reviewer.reviewer_id,
                     "decision": inp.reviewer.decision,
@@ -228,7 +240,11 @@ class VerifyActivities:
                 v.decided_at = utcnow()
 
             animal = await s.get(Animal, (sid, aid))
+            if animal is None:
+                raise ValueError(f"Animal not found: {aid}")
             listing = await s.get(Listing, (sid, animal.listing_id))
+            if listing is None:
+                raise ValueError(f"Listing not found: {animal.listing_id}")
             listing.status = LISTING_STATUS[Decision(status)]
             events.add_event(
                 s,
@@ -253,7 +269,11 @@ class VerifyActivities:
         sid, aid = uuid.UUID(req.seller_id), uuid.UUID(req.animal_id)
         async with self.d.sessionmaker() as s:
             animal = await s.get(Animal, (sid, aid))
+            if animal is None:
+                raise ValueError(f"Animal not found: {aid}")
             listing = await s.get(Listing, (sid, animal.listing_id))
+            if listing is None:
+                raise ValueError(f"Listing not found: {animal.listing_id}")
         await asyncio.to_thread(
             self.d.index.upsert,
             req.animal_id,
@@ -267,7 +287,7 @@ class VerifyActivities:
             },
         )
 
-    def all(self) -> list:
+    def all(self) -> list[Any]:
         return [
             self.start_verification,
             self.analyze_media,

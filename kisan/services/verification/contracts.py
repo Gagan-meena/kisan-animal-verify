@@ -4,6 +4,7 @@ sandbox can load them."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -23,7 +24,7 @@ class ReviewSignal:
 
 @dataclass
 class AnalyzeResult:
-    results: list[dict]
+    results: list[dict[str,Any]]
     centroid: list[float] | None
     phashes: dict[str, str]
     stopped_at: str | None
@@ -38,16 +39,16 @@ class FraudInput:
 
 @dataclass
 class ScoreInput:
-    results: list[dict]
+    results: list[dict[str,Any]]
 
 
 @dataclass
 class RecordInput:
     req: VerifyRequest
     verification_id: str
-    phase: str  # "ai" | "review" | "escalated"
-    decision: dict
-    results: list[dict] = field(default_factory=list)
+    phase: str  # "ai" | "review" | "escalated" Literal["ai", "review", "escalated"]
+    decision: dict[str,Any]
+    results: list[dict[str,Any]] = field(default_factory=list[dict[str, Any]])
     reviewer: ReviewSignal | None = None
 
 

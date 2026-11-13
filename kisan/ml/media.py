@@ -7,6 +7,7 @@ import tempfile
 
 import cv2
 import numpy as np
+from cv2.typing import MatLike
 
 
 def decode_image(data: bytes) -> np.ndarray:
@@ -26,7 +27,7 @@ def sample_video_frames(data: bytes, n: int = 6, max_side: int = 1280) -> list[n
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if total <= 0:
             return []
-        frames = []
+        frames:list[MatLike] = []
         for idx in np.linspace(0, total - 1, num=min(n, total)).astype(int):
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
             ok, frame = cap.read()

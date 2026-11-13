@@ -23,8 +23,11 @@ from kisan.vector import get_index
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     s = get_settings()
+    backend = get_backend()
+    index = get_index()
     client = await Client.connect(s.temporal_host)
-    acts = VerifyActivities(Deps(get_sessionmaker(), get_storage(), get_backend(), get_index(), s))
+    acts = VerifyActivities(Deps(get_sessionmaker(), get_storage(),backend, index , s))
+    index.ensure_collection(backend.dim, shards=s.qdrant_shards, replicas=s.qdrant_replicas)
     worker = Worker(
         client,
         task_queue=s.temporal_task_queue,

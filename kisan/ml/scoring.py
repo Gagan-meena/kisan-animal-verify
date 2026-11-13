@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from kisan.ml.types import StageResult
 
@@ -25,16 +26,16 @@ REUPLOAD_BELOW = 60.0
 class DecisionResult:
     status: str  # VERIFIED | NEEDS_REVIEW | REUPLOAD | BLOCKED
     score: float | None
-    flags: list[str] = field(default_factory=list)
-    reasons: list[str] = field(default_factory=list)
-    reupload: list[dict] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list[str])
+    reasons: list[str] = field(default_factory=list[str])
+    reupload: list[dict[str,Any]] = field(default_factory=list[dict[str,Any]])
     ai_status: str | None = None  # what the AI alone would have decided (pilot shadow mode)
 
     def __post_init__(self):
         if self.ai_status is None:
             self.ai_status = self.status
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str,Any]:
         return self.__dict__.copy()
 
 

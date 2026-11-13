@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Protocol
+from typing import Any, Protocol
 
 from kisan.config import get_settings
 from kisan.ml.stages.fraud import DuplicateHit
@@ -13,7 +13,7 @@ class IdentityIndex(Protocol):
     def search(
         self, vector: list[float], *, species: str, exclude_animal_id: str, limit: int = 5
     ) -> list[DuplicateHit]: ...
-    def upsert(self, animal_id: str, vector: list[float], payload: dict) -> None: ...
+    def upsert(self, animal_id: str, vector: list[float], payload: dict[str,Any]) -> None: ...
     def set_status(self, animal_id: str, status: str) -> None: ...
 
 
@@ -81,6 +81,9 @@ class QdrantIndex:
 class MemoryIndex:
     def __init__(self):
         self.points: dict[str, tuple[list[float], dict]] = {}
+
+    def ensure_collection(self, dim: int, shards: int = 1, replicas: int = 1) -> None:
+        pass # nothing to create in memory
 
     def search(self, vector, *, species, exclude_animal_id, limit=5):
         import numpy as np

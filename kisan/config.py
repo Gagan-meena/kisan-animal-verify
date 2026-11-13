@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     temporal_task_queue: str = "verify-animal"
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "animal_identity"
+    qdrant_shards:int=1 
+    qdrant_replicas:int=1
 
     s3_endpoint: str | None = None
     s3_public_endpoint: str | None = None

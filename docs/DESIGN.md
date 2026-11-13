@@ -161,22 +161,31 @@ There is **no gallery button**. The server refuses gallery uploads (422).
 | `NEEDS_REVIEW` | Amber: "Our team is checking your listing. You will get a message when it is done." Shows "usually within 4 hours" |
 | `BLOCKED` | Grey ⛔, `message` (contains the reason), link to help |
 
-> ⚠️ Today the server returns English `reason` text. The app must map reasons through **reason codes** once KSN-034 ships. Until then show the server text under a translated generic line.
+Each `reupload[]` item is `{image_id, view, reason, code}` (KSN-034 ✅). **Show the text for `code` from the table below**, in the app's language; `reason` is English for logs and support. Unknown or missing code → use `other`. Each photo gets one code: the first problem in fix order (too_small → blurry → too_dark / too_bright → low_contrast → clipped).
 
-**Seller copy (EN → HI)**
+**Seller copy (EN → HI)** — `code` keys match `ReuploadCode` in `kisan/ml/types.py`
 
 | Key | English | Hindi |
 |---|---|---|
 | `blurry` | Photo is blurry. Hold the phone steady. | फ़ोटो धुंधली है। फ़ोन स्थिर रखें। |
 | `too_dark` | Too dark. Move to daylight. | बहुत अंधेरा है। रोशनी में जाएँ। |
+| `too_bright` | Too bright. Don't keep the sun behind the animal. | बहुत ज़्यादा रोशनी है। धूप पशु के पीछे न रखें। |
+| `too_small` | Photo quality is too low. Use the main camera. | फ़ोटो की क्वालिटी कम है। मुख्य कैमरे से फ़ोटो लें। |
+| `low_contrast` | Photo is not clear. Take it in even light. | फ़ोटो साफ़ नहीं है। एक जैसी रोशनी में फ़ोटो लें। |
+| `clipped` | Parts of the photo are too dark or too bright. Change your angle. | फ़ोटो का कुछ हिस्सा बहुत काला या बहुत सफ़ेद है। अपनी जगह बदलें। |
 | `too_far` | Animal is too far. Move closer. | पशु बहुत दूर है। पास जाएँ। |
 | `many_animals` | Only one animal in the photo. | फ़ोटो में केवल एक पशु रखें। |
 | `no_animal` | No animal found in this photo. | इस फ़ोटो में पशु नहीं दिखा। |
 | `wrong_view` | This looks like the {seen} photo. Take the {view} photo. | यह {seen} की फ़ोटो लगती है। {view} की फ़ोटो लें। |
 | `missing` | {view} photo is missing. | {view} की फ़ोटो नहीं है। |
 | `same_photo` | Same photo as another view. Take a new one. | यह दूसरी फ़ोटो जैसी ही है। नई फ़ोटो लें। |
+| `use_camera` | Take this photo with the in-app camera. | यह फ़ोटो ऐप के कैमरे से लें। |
+| `other` | Please take this photo again. | कृपया यह फ़ोटो दोबारा लें। |
 | `verified` | Your animal is verified. | आपका पशु सत्यापित हो गया है। |
 | `in_review` | Our team is checking your listing. | हमारी टीम आपकी लिस्टिंग देख रही है। |
+
+> ⚠️ `wrong_view` needs `{seen}`, but the API does not send it yet (KSN-089). Until then use: "Take the {view} photo." / "{view} की फ़ोटो लें।"
+> Hindi for `too_bright`, `too_small`, `low_contrast`, `clipped`, `use_camera`, `other` is a draft — have a native speaker check it with farmers.
 
 ### 4.7 Buyer listing card (for later, KSN-060)
 FRONT photo · ✅ **Verified** chip (only when `LIVE`) · species, breed, age, price, district · swipe gallery in view order · walk-around video · "Report this listing".
@@ -214,6 +223,7 @@ Oldest first. `J/K` move, `Enter` opens.
 - `POST /v1/review/{seller_id}/{animal_id}` with `decision`, `reason`, `labels`.
 - Reason **required** for R and B; it is shown to the seller.
 - Labels are training data: always ask "Same animal?" and "Species right?".
+- Flag **"automatic check failed"** means the AI could not run (KSN-030): there are no stage results, so the reviewer checks the photos by eye.
 - After submit: next case opens automatically.
 
 ## 6. Accessibility & performance checklist

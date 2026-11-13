@@ -34,17 +34,17 @@
 
 ## M1 · Pilot-ready backend
 
-- [ ] **KSN-030** · S · Failed workflow (e.g. Triton down after retries) → mark `NEEDS_REVIEW` with flag "automatic check failed" + alert — *done when* listing never stays `VERIFYING` after a workflow failure
+- [x] **KSN-030** · S · Failed workflow → `NEEDS_REVIEW` with flag "automatic check failed" — *done 2026-11-13*: `ActivityError` in analyze / fraud / score caught in the workflow; test with a failing fake `analyze_media`. Proved live at the Day 2 checkpoint (Qdrant 404). *Still open:* alert ops (with KSN-052)
 - [x] **KSN-031** · S · Refuse resubmit of `BLOCKED` listings (409) — *done 2026-11-07*: check runs before the missing-photos check; test asserts the message, not only the 409
 - [ ] **KSN-032** · S · On sale / delete, set Qdrant point `status` to `sold` / `removed` (`IdentityIndex.set_status` exists, unused)
 - [ ] **KSN-033** · S · Nightly job: delete `animal_images` rows with `uploaded=false` older than 24 h
-- [ ] **KSN-034** · M · Return **reason codes** (`blurry`, `too_dark`, `wrong_view`…) next to text in `reupload[]`, so the app can translate — see DESIGN §4.6
-- [ ] **KSN-035** · S · Run the 2 Temporal workflow tests in CI (needs network for the test server). **Locally they now run and fail** with `'dict' object has no attribute 'phase'` — first rule out a Python 3.14 venv (project targets 3.12)
+- [x] **KSN-034** · M · Reason codes next to text in `reupload[]` — *done 2026-11-13*: `ReuploadCode` StrEnum; every stage sets `code`; quality uses the first problem in fix order; `ReuploadOut.code` defaults to `other` for old rows (test). Copy for new codes in DESIGN §4.6
+- [x] **KSN-035** · S · Run the 2 Temporal workflow tests — *done 2026-11-13*: fake activities lacked type hints, so Temporal passed `dict`. Run locally; CI still needs network for the test server (KSN-082)
 - [ ] **KSN-036** · M · Notification consumer: `verify.decided` → push / SMS in the seller's language
 - [x] **KSN-037** · S · `GET /v1/listings` for the seller's own listings (My listings screen) — *done 2026-11-07*: newest first, 3 tests (order, only own, empty)
 
 ### Found in code review (2026-11-01)
-- [ ] **KSN-038** · S · Trigger poison pill: `trigger.parse()` only catches `ValueError`/`KeyError`; a message like `[1]`, `null` or `"x"` raises `TypeError` → crash loop on the same offset, partition stalls. Catch any parse error → DLQ — *done when* a test sends those 3 messages and all land in `verify.requested.dlq`
+- [x] **KSN-038** · S · Trigger poison pill → DLQ — *done 2026-11-13*: `parse()` raises `ValueError` for non-object JSON (5-case test); loop catches any parse error; `start()` stays outside the `try`. Checkpoint: `[1]`, `null`, `"x"` landed in `verify.requested.dlq`, trigger stayed up
 - [ ] **KSN-039** · S · Stale status after resubmit: `GET …/verification` returns the latest `verifications` row, so until the worker creates the new row the app sees the old `REUPLOAD`. If `listing.status == VERIFYING` and the latest row is decided, return `PENDING` — *done when* test: REUPLOAD → resubmit → status is PENDING
 - [ ] **KSN-045** · S · Upload size cap: presigned PUT has no size limit and `analyze_media` reads whole files into memory (5 GB "video" → worker OOM ×3 retries). Use presigned POST with `content-length-range`, or HEAD-check size in `complete_upload` (photo ≤ 5 MB, video ≤ 50 MB, numbers in `rules/policy.py`) — *done when* oversized file gets 413/422 and never reaches the worker
 - [ ] **KSN-046** · M · Relay leadership: lock is held on one idle-in-transaction connection and never re-checked; if it drops, two relays send at once. Session advisory locks are also unsafe behind PgBouncer transaction mode. Use a direct (non-PgBouncer) connection and re-check every loop, or drop the leader and claim rows with `FOR UPDATE SKIP LOCKED` — *done when* killing the lock connection stops the old relay from sending
@@ -56,8 +56,14 @@
 - [ ] **KSN-065** · S · Check `state_rules` at `POST /v1/listings`: refuse a species that can't be sold in the seller's state *before* the farmer takes 8 photos. Keep the pipeline rules stage too (rules and docs change). Unreviewed rules (`legally_reviewed=false`) never block — *done when* a blocked species gets 403/409 with a plain message at create time
 - [ ] **KSN-066** · M · Seller suspension: `sellers.status` (`ACTIVE` / `SUSPENDED`); after N `BLOCKED` listings (N in config) open a case for a human to confirm — never auto-suspend on AI blocks alone; appeal path; suspended sellers get 403 on create/submit — *done when* tests cover threshold, human confirm and 403
 - [ ] **KSN-067** · S · Dev seller validation: `POST /dev/sellers` with `"state": "string"` crashes with 500 (`value too long for type character(2)`). Validate `state` as `^[A-Z]{2}$` → 422
-- [ ] **KSN-068** · S · Repo hygiene: add `.gitignore` (`.env`, `.venv/`, `*.egg-info/`, `models/weights/`) and a `.env.example` with placeholder values; keep docs only in `docs/` (remove root duplicates)
+- [ ] **KSN-068** · S · Repo hygiene: add `.gitignore` (`.env`, `.venv/`, `*.egg-info/`, `models/weights/`, `__pycache__/`) and a `.env.example` with placeholder values; keep docs only in `docs/` (remove root duplicates)
 - [ ] **KSN-069** · S · Decide: should `SOLD` listings also be refused on submit (same as `BLOCKED`)? Record the decision in MEMORY
+
+### Found on Day 2 (2026-11-13)
+- [x] **KSN-086** · S · Create the Qdrant collection on worker start — *done 2026-11-13*: `main()` calls `index.ensure_collection(backend.dim, shards, replicas)`; `KISAN_QDRANT_SHARDS/REPLICAS` (default 1/1, prod 6/2); no-op in the in-memory index. *Note:* two workers starting at once can race on create — make it tolerate "already exists" before scaling workers
+- [ ] **KSN-087** · S · Fail fast on config errors: a missing Qdrant collection (404) was retried 10× (~2.5 min) before the workflow gave up. Raise non-retryable `ApplicationError` for 4xx config errors in `fraud_and_rules` — *done when* a 404 fails on the 1st attempt and the listing goes to `NEEDS_REVIEW`
+- [ ] **KSN-088** · S · Animals verified by a reviewer after an analysis failure have no centroid, so they are never indexed and duplicate search misses them. Re-run `analyze_media` before `index_identity`, or queue them for indexing later — *done when* such an animal has a Qdrant point
+- [ ] **KSN-089** · S · `wrong_view` copy needs `{seen}` ("This looks like the FACE photo"), but `reupload[]` only has `view`. Add `seen` to `ReuploadItem`/`ReuploadOut` (default `null`) — *done when* the app can fill both placeholders
 
 ### Security & compliance
 - [ ] **KSN-040** · L · Gateway: phone OTP login, JWT validation, sets `X-Seller-Id` / `X-Reviewer-Id` only from verified tokens, staff SSO — **blocks public exposure**
@@ -74,7 +80,7 @@
 - [ ] **KSN-021** · L · Train YOLO11m detector, 6 species — *done when* mAP50 ≥ 0.90 on a held-out RJ set
 - [ ] **KSN-022** · M · Train view classifier (7 views) — *done when* accuracy ≥ 95 %
 - [ ] **KSN-023** · L · Re-ID: test MegaDescriptor zero-shot, then fine-tune on labelled pairs — *done when* ≥ 98 % of "same animal" pairs pass at ≤ 1 % false match
-- [ ] **KSN-027** · M · Zero-shot `LocalBackend`: YOLO11 COCO detector, CLIP species + views, MegaDescriptor / DINOv2 embeddings (stopgap until KSN-021/022)
+- [ ] **KSN-027** · M · Zero-shot `LocalBackend`: YOLO11 COCO detector, CLIP species + views, MegaDescriptor / DINOv2 embeddings (stopgap until KSN-021/022). Must expose `dim` (used by `ensure_collection`)
 - [ ] **KSN-028** · S · CLI `python -m kisan.tools.try_photos <folder>` printing every stage result
 - [ ] **KSN-029** · S · `eval/same_animal.py`: same vs different pairs → similarity histogram + match rate per threshold
 - [ ] **KSN-024** · M · Calibrate `ml/thresholds.py` on labelled data; version thresholds with weights
@@ -88,7 +94,7 @@
 - [ ] **KSN-072** · L · Guided camera with live checks + silhouettes (DESIGN §4.3) — needs KSN-026
 - [ ] **KSN-073** · S · 5-second walk-around video step
 - [ ] **KSN-074** · M · Resumable background upload queue that survives app kill (DESIGN §4.4)
-- [ ] **KSN-075** · M · Submit, checking and result screens (DESIGN §4.5–4.6)
+- [ ] **KSN-075** · M · Submit, checking and result screens (DESIGN §4.5–4.6) — map `reupload[].code` (KSN-034 ✅)
 - [ ] **KSN-076** · S · Push notifications (needs KSN-036)
 - [ ] **KSN-077** · S · My listings screen (needs KSN-037 ✅)
 
@@ -96,7 +102,7 @@
 
 - [ ] **KSN-050** · M · Queue screen with SLA colours and keyboard navigation
 - [ ] **KSN-051** · L · Case screen: photo grid with per-photo similarity, outlier outline, duplicate side-by-side, decision + labels, shortcuts
-- [ ] **KSN-052** · S · Alert ops when a case passes the 4 h SLA
+- [ ] **KSN-052** · S · Alert ops when a case passes the 4 h SLA, and when a workflow hits "automatic check failed"
 - [ ] **KSN-053** · S · Lock a case to one reviewer while open
 - [ ] **KSN-091** · S · Reviewer playbook: what "same animal" means, when to block
 
@@ -104,7 +110,7 @@
 
 - [ ] **KSN-080** · L · Terraform (ap-south-1): VPC, EKS, MSK, S3, Citus cluster, Qdrant ×3, Temporal (Cloud or HA)
 - [ ] **KSN-081** · M · Helm charts for api, relay, trigger, worker, Triton
-- [ ] **KSN-082** · S · CI: ruff, pytest, image build and scan
+- [ ] **KSN-082** · S · CI: ruff, pytest (incl. Temporal tests, needs network), image build and scan
 - [ ] **KSN-083** · M · Observability: OpenTelemetry traces, Prometheus, dashboard for the **exit-gate metrics** (PRD §5)
 - [ ] **KSN-084** · M · Load test at 2× planned peak (~125 photos/s)
 - [ ] **KSN-085** · S · Backups (PITR, S3 replication, Qdrant snapshots) + one restore drill
