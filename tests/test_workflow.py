@@ -7,6 +7,7 @@ import uuid
 import pytest
 from temporalio import activity
 from temporalio.client import WorkflowFailureError  # noqa: F401
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from kisan.services.verification.contracts import AnalyzeResult, RecordInput, ReviewSignal, VerifyRequest
@@ -25,13 +26,15 @@ async def env():
     await e.shutdown()
 
 
-def fake_activities(decision_status: str, recorded: list):
+def fake_activities(decision_status: str, recorded: list,fail_analyze:bool=False):
     @activity.defn(name="start_verification")
     async def start_verification(req):
         return "v1"
 
     @activity.defn(name="analyze_media")
     async def analyze_media(req):
+        if fail_analyze:
+            raise ApplicationError("triton down", non_retryable=True)
         return AnalyzeResult(results=[], centroid=[0.1, 0.2], phashes={}, stopped_at=None)
 
     @activity.defn(name="fraud_and_rules")
@@ -94,3 +97,16 @@ async def test_workflow_passes_sandbox_validation():
     from temporalio.workflow import _Definition
 
     SandboxedWorkflowRunner().prepare_workflow(_Definition.must_from_class(VerifyAnimal))
+
+async def test_analyze_failure_goes_to_review(env) -> None:
+    recorded: list = []
+    async with Worker(
+        env.client,
+        task_queue="t3",
+        workflows=[VerifyAnimal],
+        activities=fake_activities("VERIFIED", recorded, fail_analyze=True),
+    ):
+        req = VerifyRequest(str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4()))
+        await env.client.start_workflow(VerifyAnimal.run, args=[req, 4.0], id="wf-3", task_queue="t3")
+        await env.sleep(60)
+        assert ("ai", "NEEDS_REVIEW") in recorded

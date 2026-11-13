@@ -7,9 +7,11 @@ reviewer for as long as needed without holding any compute.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, TypedDict
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from kisan.services.verification.activities import VerifyActivities
@@ -23,22 +25,30 @@ with workflow.unsafe.imports_passed_through():
         VerifyRequest,
     )
 
-DB = dict(
-    start_to_close_timeout=timedelta(seconds=30),
-    retry_policy=RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=30)),
-)
-GPU = dict(
-    start_to_close_timeout=timedelta(minutes=5),
-    heartbeat_timeout=timedelta(seconds=90),
-    retry_policy=RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
-)
+class ActivityOptions(TypedDict, total=False):
+    start_to_close_timeout: timedelta
+    schedule_to_close_timeout: timedelta
+    heartbeat_timeout: timedelta
+    retry_policy: RetryPolicy
+    task_queue: str
+
+
+DB: ActivityOptions = {
+    "start_to_close_timeout":timedelta(seconds=30),
+    "retry_policy":RetryPolicy(maximum_attempts=10, maximum_interval=timedelta(seconds=30)),
+}
+GPU:ActivityOptions = {
+    "start_to_close_timeout":timedelta(minutes=5),
+    "heartbeat_timeout":timedelta(seconds=90),
+    "retry_policy":RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5)),
+}
 
 
 @workflow.defn
 class VerifyAnimal:
     def __init__(self) -> None:
         self._review: ReviewSignal | None = None
-        self._status = "PENDING"
+        self._status: str = "PENDING"
 
     @workflow.signal
     def reviewed(self, decision: ReviewSignal) -> None:
@@ -51,23 +61,50 @@ class VerifyAnimal:
 
     @workflow.run
     async def run(self, req: VerifyRequest, review_sla_hours: float = 4.0) -> str:
-        vid: str = await workflow.execute_activity_method(VerifyActivities.start_verification, req, **DB)
-
-        analysis: AnalyzeResult = await workflow.execute_activity_method(
-            VerifyActivities.analyze_media, req, **GPU
+        vid: str = await workflow.execute_activity_method(
+            VerifyActivities.start_verification,
+            req,
+            **DB
         )
-        results = list(analysis.results)
-        if analysis.stopped_at is None:
-            results += await workflow.execute_activity_method(
-                VerifyActivities.fraud_and_rules, FraudInput(req, analysis.centroid, analysis.phashes), **DB
+
+        analysis: AnalyzeResult | None = None
+        results:list[dict[str,Any]] = []
+        decision: dict[str, Any] = {}
+        try:
+            analysis = await workflow.execute_activity_method(
+                VerifyActivities.analyze_media, 
+                req, 
+                **GPU
             )
+    
+            results = list(analysis.results)
+            if analysis.stopped_at is None:
+                results += await workflow.execute_activity_method(
+                    VerifyActivities.fraud_and_rules, 
+                    FraudInput(req, analysis.centroid, analysis.phashes), 
+                    **DB
+                )
+    
+            decision = await workflow.execute_activity_method(
+                VerifyActivities.score, 
+                ScoreInput(results), 
+                **DB
+            )
+        except ActivityError:
+            decision = {
+                "status":"NEEDS_REVIEW",
+                "score":None,
+                "flags":["automatic check failed"],
+                "reasons":None
+            }
+            pass
 
-        decision: dict = await workflow.execute_activity_method(
-            VerifyActivities.score, ScoreInput(results), **DB
-        )
+
         self._status = decision["status"]
         await workflow.execute_activity_method(
-            VerifyActivities.record_decision, RecordInput(req, vid, "ai", decision, results), **DB
+            VerifyActivities.record_decision, 
+            RecordInput(req, vid, "ai", decision, results), 
+            **DB
         )
 
         if decision["status"] == "NEEDS_REVIEW":
@@ -78,11 +115,15 @@ class VerifyAnimal:
                 )
             except TimeoutError:
                 await workflow.execute_activity_method(
-                    VerifyActivities.record_decision, RecordInput(req, vid, "escalated", decision), **DB
+                    VerifyActivities.record_decision, 
+                    RecordInput(req, vid, "escalated", decision), 
+                    **DB
                 )
                 await workflow.wait_condition(lambda: self._review is not None)
 
             review = self._review
+            if review is None:
+                raise RuntimeError("Review signal missing after wait_condition")
             decision = {
                 "status": review.decision,
                 "score": decision.get("score"),
@@ -95,8 +136,10 @@ class VerifyAnimal:
             )
             self._status = review.decision
 
-        if decision["status"] == "VERIFIED" and analysis.centroid:
+        if decision["status"] == "VERIFIED" and analysis and analysis.centroid:
             await workflow.execute_activity_method(
-                VerifyActivities.index_identity, IndexInput(req, analysis.centroid), **DB
+                VerifyActivities.index_identity, 
+                IndexInput(req, analysis.centroid), 
+                **DB
             )
         return decision["status"]
